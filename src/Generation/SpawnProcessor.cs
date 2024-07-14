@@ -10,21 +10,21 @@ namespace MapExporter.Generation
 {
     internal class SpawnProcessor(Generator owner) : Processor(owner)
     {
-        public override string ProcessName => "Spawns";
+        public override string ProcessName => "creatures";
 
         protected override IEnumerator Process()
         {
-            List<SpawnInfo> spawns = [];
+            List<SpawnInfo> creatures = [];
 
             foreach (var room in owner.regionInfo.rooms.Values)
             {
 
-                var dens = room.spawns.GroupBy(x => x[0].den);
+                var dens = room.creatures.GroupBy(x => x[0].den);
                 foreach (var data in dens)
                 {
                     try
                     {
-                        spawns.Add(new SpawnInfo
+                        creatures.Add(new SpawnInfo
                         {
                             roomName = room.roomName,
                             den = data.Key,
@@ -39,7 +39,7 @@ namespace MapExporter.Generation
                 }
             }
 
-            owner.metadata["spawn_features"] = spawns;
+            owner.metadata["creatures_features"] = creatures;
 
             Progress = 1f;
             yield return null;
@@ -75,7 +75,7 @@ namespace MapExporter.Generation
                     {
                         spawnDict["lineage"] = data.Select(x => x.type).ToArray();
                         spawnDict["lineage_probs"] = data.Select(x => x.chance.ToString("0.0000")).ToArray();
-                        spawnDict["lineage_data"] = data.Select(x => x.data).ToArray();
+                        spawnDict["attributes"] = data.Select(x => x.data).ToArray();
                     }
 
                     spawnDicts.Add(spawnDict);
@@ -98,7 +98,7 @@ namespace MapExporter.Generation
                         {
                             { "room", roomName },
                             { "den", den },
-                            { "spawns",  spawnDicts }
+                            { "creatures",  spawnDicts }
                         }
                     }
                 };

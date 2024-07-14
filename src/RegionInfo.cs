@@ -198,7 +198,7 @@ namespace MapExporter
             public int[,][] tiles;
             public IntVector2[] nodes;
 
-            public DenSpawnData[][] spawns;
+            public DenSpawnData[][] creatures;
             public string[] tags;
 
             internal bool offscreenDen = false;
@@ -216,7 +216,7 @@ namespace MapExporter
 
                 if (spawnerCWT.TryGetValue(world, out var spawners))
                 {
-                    List<DenSpawnData[]> spawns = [];
+                    List<DenSpawnData[]> creatures = [];
                     for (int i = 0; i < spawners.Count; i++)
                     {
                         var spawner = spawners[i];
@@ -224,7 +224,7 @@ namespace MapExporter
                         if (spawner is World.Lineage lineage)
                         {
                             var den = new DenSpawnData[lineage.creatureTypes.Length];
-                            spawns.Add(den);
+                            creatures.Add(den);
                             for (int j = 0; j < den.Length; j++)
                             {
                                 den[j] = new DenSpawnData()
@@ -240,7 +240,7 @@ namespace MapExporter
                         }
                         else if (spawner is World.SimpleSpawner simple)
                         {
-                            spawns.Add([
+                            creatures.Add([
                                 new DenSpawnData() {
                                     chance = -1f,
                                     count = simple.amount,
@@ -257,7 +257,7 @@ namespace MapExporter
                         }
                     }
 
-                    this.spawns = [.. spawns];
+                    this.creatures = [.. creatures];
                 }
                 
                 tags = [.. (room.roomTags ?? [])];
@@ -334,7 +334,7 @@ namespace MapExporter
                     { "tiles", tiles },
                     { "nodes", nodes?.Select(Intvec2arr).ToList() },
 
-                    { "spawns", spawns },
+                    { "creatures", creatures },
                     { "tags", tags },
                 };
             }
@@ -347,7 +347,7 @@ namespace MapExporter
                     subregion = (string)json["subregion"],
                     devPos = Arr2Vec2((List<object>)json["pos"]),
 
-                    spawns = ((List<object>)json["spawns"]).Cast<List<object>>().Select(x =>
+                    creatures = ((List<object>)json["creatures"]).Cast<List<object>>().Select(x =>
                     {
                         var list = new List<DenSpawnData>();
                         foreach (Dictionary<string, object> spawn in x.Cast<Dictionary<string, object>>())
