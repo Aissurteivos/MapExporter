@@ -134,24 +134,24 @@ namespace MapExporter.Generation
         
         struct CPUBilinearScaleJob : IJobParallelFor
         {
-            [ReadOnly] public NativeArray<Color32> oldPixels;
-            public NativeArray<Color32> pixels;
-            public int oldW, oldH;
-            public int newW, newH;
+            [ReadOnly] public NativeArray<Color32> OldPixels;
+            public NativeArray<Color32> Pixels;
+            public int OldW, OldH;
+            public int NewW, NewH;
 
             // Use bilinear filtering because it's quick n' easy (probably could do better with something like bicubic or even Lanczos)
             public void Execute(int index)
             {
-                int x = index % newW;
-                int y = index / newW;
+                int x = index % NewW;
+                int y = index / NewW;
 
-                float u = Custom.LerpMap(x, 0, newW - 1, 0, oldW - 1);
-                float v = Custom.LerpMap(y, 0, newH - 1, 0, oldH - 1);
-                Color32 tl = oldPixels[Mathf.FloorToInt(u) + Mathf.CeilToInt(v) * oldW];
-                Color32 tr = oldPixels[Mathf.CeilToInt(u) + Mathf.CeilToInt(v) * oldW];
-                Color32 bl = oldPixels[Mathf.FloorToInt(u) + Mathf.FloorToInt(v) * oldW];
-                Color32 br = oldPixels[Mathf.CeilToInt(u) + Mathf.FloorToInt(v) * oldW];
-                pixels[index] = Color32.LerpUnclamped(Color32.LerpUnclamped(tl, tr, u % 1f), Color32.LerpUnclamped(bl, br, u % 1f), v % 1f);
+                float u = Custom.LerpMap(x, 0, NewW - 1, 0, OldW - 1);
+                float v = Custom.LerpMap(y, 0, NewH - 1, 0, OldH - 1);
+                Color32 tl = OldPixels[Mathf.FloorToInt(u) + Mathf.CeilToInt(v) * OldW];
+                Color32 tr = OldPixels[Mathf.CeilToInt(u) + Mathf.CeilToInt(v) * OldW];
+                Color32 bl = OldPixels[Mathf.FloorToInt(u) + Mathf.FloorToInt(v) * OldW];
+                Color32 br = OldPixels[Mathf.CeilToInt(u) + Mathf.FloorToInt(v) * OldW];
+                Pixels[index] = Color32.LerpUnclamped(Color32.LerpUnclamped(tl, tr, u % 1f), Color32.LerpUnclamped(bl, br, u % 1f), v % 1f);
             }
         }
         public static void ScaleTexture(Texture2D texture, int width, int height)
@@ -162,12 +162,12 @@ namespace MapExporter.Generation
 
             var scaler = new CPUBilinearScaleJob
             {
-                oldPixels = oldPixels,
-                pixels = pixels,
-                oldW = texture.width,
-                oldH = texture.height,
-                newW = width,
-                newH = height
+                OldPixels = oldPixels,
+                Pixels = pixels,
+                OldW = texture.width,
+                OldH = texture.height,
+                NewW = width,
+                NewH = height
             };
             
             var scalerJob = scaler.Schedule(width * height, 64);
@@ -185,32 +185,61 @@ namespace MapExporter.Generation
                 pixels.Dispose();
             }
         }
+        
+        public struct CopyTextureJob : IJobParallelFor
+        {
+            [ReadOnly] public NativeArray<Color32> Src;
+            public NativeArray<Color32> Dst;
+            public int SrcTotalWidth;
+            public int DstTotalWidth;
+            public int SrcTotalHeight;
+            public int DstTotalHeight;
+            public int Sx;
+            public int Sy;
+            public int SW;
+            public int Dx;
+            public int Dy;
 
+            public void Execute(int index)
+            {
+                int i = index % SW;
+                int j = index / SW;
+
+                if (Sx + i < 0 || Sx + i >= SrcTotalWidth || Dx + i < 0 || Dx + i >= DstTotalWidth) return;
+                if (Sy + j < 0 || Sy + j >= SrcTotalHeight || Dy + j < 0 || Dy + j >= DstTotalHeight) return;
+
+                Dst[(Dx + i) + (Dy + j) * DstTotalWidth] = Src[(Sx + i) + (Sy + j) * SrcTotalWidth];
+            }
+        }
         public static void CopyTextureSegment(Texture2D source, Texture2D destination, int sx, int sy, int sw, int sh, int dx, int dy)
         {
-            var sp = source.GetRawTextureData<Color32>();
-            var dp = destination.GetRawTextureData<Color32>();
+            var srcData = source.GetRawTextureData<Color32>();
+            var dstData = destination.GetRawTextureData<Color32>();
 
-            try
+            var job = new CopyTextureJob
             {
-                for (int i = 0; i < sw; i++)
-                {
-                    if (sx + i < 0 || sx + i >= source.width || dx + i < 0 || dx + i >= destination.width) continue;
-                    for (int j = 0; j < sh; j++)
-                    {
-                        if (sy + j < 0 || sy + j >= source.height || dy + j < 0 || dy + j >= destination.height) continue;
-                        dp[(i + dx) + (j + dy) * destination.width] = sp[(i + sx) + (j + sy) * source.width];
-                    }
-                }
+                Src = srcData,
+                Dst = dstData,
+                SrcTotalWidth = source.width,
+                DstTotalWidth = destination.width,
+                SrcTotalHeight = source.height,
+                DstTotalHeight = destination.height,
+                Sx = sx,
+                Sy = sy,
+                SW = sw,
+                Dx = dx,
+                Dy = dy
+            };
 
-                destination.SetPixelData(dp, 0);
-            }
-            finally
-            {
-                // No leaking memory for you! :3
-                sp.Dispose();
-                dp.Dispose();
-            }
+            var copyJob = job.Schedule(sw * sh, 64);
+            copyJob.Complete();
+
+            dstData.CopyFrom(job.Dst);
+
+            destination.SetPixelData(dstData, 0);
+
+            srcData.Dispose();
+            dstData.Dispose();
         }
     }
     public class TextureCache<TKey>( int capacity ) {
