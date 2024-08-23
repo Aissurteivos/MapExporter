@@ -22,7 +22,8 @@ namespace MapExporter.Generation
             string outputPath = Directory.CreateDirectory(OutputPathForStep(zoom)).FullName;
             float multFac = Mathf.Pow(2, zoom);
             var regionInfo = owner.regionInfo;
-
+            TextureCache<string> imageCache = new(256);
+            
             // Find room boundaries
             Vector2 mapMin = Vector2.zero;
             Vector2 mapMax = Vector2.zero;
@@ -51,7 +52,6 @@ namespace MapExporter.Generation
             int totalTiles = (urbTile.x - llbTile.x + 1) * (urbTile.y - llbTile.y + 1);
             int processed = 0;
 
-            Texture2D camTexture = new(1, 1, TextureFormat.ARGB32, false, false);
             for (int tileY = llbTile.y; tileY <= urbTile.y; tileY++)
             {
                 for (int tileX = llbTile.x; tileX <= urbTile.x; tileX++)
@@ -88,18 +88,24 @@ namespace MapExporter.Generation
                                     }
                                     tile.SetPixels(pixels);
                                 }
+                                
+                                if ( !imageCache.Contains( fileName ) ) {
+                                    Texture2D camTexture = new Texture2D(1, 1, TextureFormat.ARGB32, false, false);
+                                    
+                                    // Open the camera so we can use it
+                                    camTexture.LoadImage(File.ReadAllBytes(Path.Combine(owner.inputDir, fileName)), false);
 
-                                // Open the camera so we can use it
-                                camTexture.LoadImage(File.ReadAllBytes(Path.Combine(owner.inputDir, fileName)), false);
-
-                                if (zoom != 0 || camTexture.width != screenSize.x || camTexture.height != screenSize.y) // Don't need to rescale to same resolution
-                                    ScaleTexture(camTexture, (int)(screenSize.x * multFac), (int)(screenSize.y * multFac));
+                                    if (zoom != 0 || camTexture.width != screenSize.x || camTexture.height != screenSize.y) // Don't need to rescale to same resolution
+                                        ScaleTexture(camTexture, (int)(screenSize.x * multFac), (int)(screenSize.y * multFac));
+                                
+                                    imageCache[fileName] = camTexture;
+                                }
 
                                 // Copy pixels
                                 Vector2 copyOffsetVec = tileCoords - (room.devPos + cam + camOffset) * multFac;
                                 IntVector2 copyOffset = Vec2IntVecFloor(copyOffsetVec);
 
-                                CopyTextureSegment(camTexture, tile, copyOffset.x, copyOffset.y, tileSizeInt.x, tileSizeInt.y, 0, 0);
+                                CopyTextureSegment(imageCache[fileName], tile, copyOffset.x, copyOffset.y, tileSizeInt.x, tileSizeInt.y, 0, 0);
                                 if (owner.lessResourceIntensive)
                                 {
                                     yield return (processed + 0.5f) / totalTiles;
@@ -121,7 +127,7 @@ namespace MapExporter.Generation
                     }
                 }
             }
-
+            imageCache.Destroy();
             yield break;
         }
 
@@ -188,6 +194,69 @@ namespace MapExporter.Generation
                 sp.Dispose();
                 dp.Dispose();
             }
+        }
+    }
+    public class TextureCache<TKey>( int capacity ) {
+        private readonly LinkedList<KeyValuePair<TKey, Texture2D>> list = [];
+        private readonly Dictionary<TKey, LinkedListNode<KeyValuePair<TKey, Texture2D>>> map = new(capacity);
+        
+        public bool Contains(TKey key)
+        {
+            return map.ContainsKey(key);
+        }
+
+        private void Insert(TKey key, Texture2D value)
+        {
+            if (map.TryGetValue( key, out LinkedListNode<KeyValuePair<TKey, Texture2D>> node ))
+            {
+                list.Remove(node);
+                Object.Destroy(node.Value.Value);
+            }
+            else if (list.Count >= capacity)
+            {
+                var lruNode = list.Last;
+                map.Remove(lruNode.Value.Key);
+                list.RemoveLast();
+                
+                Object.Destroy(lruNode.Value.Value);
+            }
+
+            var newNode = new LinkedListNode<KeyValuePair<TKey, Texture2D>>(new KeyValuePair<TKey, Texture2D>(key, value));
+            list.AddFirst(newNode);
+
+            map[key] = newNode;
+        }
+
+        private bool TryGetValue(TKey key, out Texture2D value)
+        {
+            if (map.TryGetValue(key, out var node))
+            {
+                list.Remove(node);
+                list.AddFirst(node);
+
+                value = node.Value.Value;
+                return true;
+            }
+
+            value = default;
+            return false;
+        }
+        
+        public Texture2D this[TKey key]
+        {
+            get
+            {
+                if (!TryGetValue(key, out var value))
+                    throw new KeyNotFoundException($"Key '{key}' not found.");
+                
+                return value;
+            }
+            set => Insert(key, value);
+        }
+
+        public void Destroy() {
+            foreach (var texture in list)
+                Object.Destroy(texture.Value);
         }
     }
 }
