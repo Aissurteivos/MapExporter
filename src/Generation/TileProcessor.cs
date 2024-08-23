@@ -121,7 +121,6 @@ namespace MapExporter.Generation
                     // Write tile if we drew anything
                     if (tile != null)
                     {
-                        tile.Apply();
                         File.WriteAllBytes(Path.Combine(outputPath, $"{tileX}_{-1 - tileY}.png"), tile.EncodeToPNG());
                         Object.Destroy(tile);
                         yield return (float)processed / totalTiles;
