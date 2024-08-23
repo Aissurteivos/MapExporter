@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 
 namespace MapExporter.Generation
@@ -63,26 +64,32 @@ namespace MapExporter.Generation
 
         public void Update()
         {
-            if (Done) return;
+            var timer = new Stopwatch();
+            timer.Start();
+            while (timer.ElapsedMilliseconds < 100) // continue processing until 100ms has elapsed, ~10 fps
+            {
+                if (Done) return;
 
-            Processor process = processes.Peek();
-            bool move = !process.MoveNext();
-            Progress = process.Progress;
-            CurrentTask = process.ProcessName;
-            if (process.Failed)
-            {
-                Done = true;
-                Failed = true;
-                return;
-            }
-            if (move)
-            {
-                process.Dispose(); // I don't think anything actually uses this but just in case for the future
-                processes.Dequeue();
-                if (processes.Count == 0)
+                Processor process = processes.Peek();
+                bool move = !process.MoveNext();
+                Progress = process.Progress;
+                CurrentTask = process.ProcessName;
+                if (process.Failed)
                 {
-                    File.WriteAllText(Path.Combine(outputDir, "region.json"), Json.Serialize(metadata));
                     Done = true;
+                    Failed = true;
+                    return;
+                }
+
+                if (move)
+                {
+                    process.Dispose(); // I don't think anything actually uses this but just in case for the future
+                    processes.Dequeue();
+                    if (processes.Count == 0)
+                    {
+                        File.WriteAllText(Path.Combine(outputDir, "region.json"), Json.Serialize(metadata));
+                        Done = true;
+                    }
                 }
             }
 
