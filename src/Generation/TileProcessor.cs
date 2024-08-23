@@ -2,6 +2,7 @@
 using System.IO;
 using RWCustom;
 using Unity.Collections;
+using Unity.Jobs;
 using UnityEngine;
 using static MapExporter.Generation.GenUtil;
 using Object = UnityEngine.Object;
@@ -130,34 +131,50 @@ namespace MapExporter.Generation
             imageCache.Destroy();
             yield break;
         }
+        
+        struct CPUBilinearScaleJob : IJobParallelFor
+        {
+            [ReadOnly] public NativeArray<Color32> oldPixels;
+            public NativeArray<Color32> pixels;
+            public int oldW, oldH;
+            public int newW, newH;
 
+            // Use bilinear filtering because it's quick n' easy (probably could do better with something like bicubic or even Lanczos)
+            public void Execute(int index)
+            {
+                int x = index % newW;
+                int y = index / newW;
+
+                float u = Custom.LerpMap(x, 0, newW - 1, 0, oldW - 1);
+                float v = Custom.LerpMap(y, 0, newH - 1, 0, oldH - 1);
+                Color32 tl = oldPixels[Mathf.FloorToInt(u) + Mathf.CeilToInt(v) * oldW];
+                Color32 tr = oldPixels[Mathf.CeilToInt(u) + Mathf.CeilToInt(v) * oldW];
+                Color32 bl = oldPixels[Mathf.FloorToInt(u) + Mathf.FloorToInt(v) * oldW];
+                Color32 br = oldPixels[Mathf.CeilToInt(u) + Mathf.FloorToInt(v) * oldW];
+                pixels[index] = Color32.LerpUnclamped(Color32.LerpUnclamped(tl, tr, u % 1f), Color32.LerpUnclamped(bl, br, u % 1f), v % 1f);
+            }
+        }
         public static void ScaleTexture(Texture2D texture, int width, int height)
         {
-            int oldW = texture.width, oldH = texture.height;
-            var oldPixels = texture.GetRawTextureData<Color32>();
-
+            var oldPixels = new NativeArray<Color32>(texture.GetRawTextureData<Color32>(), Allocator.TempJob);
             // Create the new texture
             var pixels = new NativeArray<Color32>(width * height, Allocator.TempJob, NativeArrayOptions.UninitializedMemory);
 
-            // Set the new texture's content
+            var scaler = new CPUBilinearScaleJob
+            {
+                oldPixels = oldPixels,
+                pixels = pixels,
+                oldW = texture.width,
+                oldH = texture.height,
+                newW = width,
+                newH = height
+            };
+            
+            var scalerJob = scaler.Schedule(width * height, 64);
+            scalerJob.Complete();
+            
             try
             {
-                // Use bilinear filtering because it's quick n' easy (probably could do better with something like bicubic or even Lanczos)
-                for (int x = 0; x < width; x++)
-                {
-                    for (int y = 0; y < height; y++)
-                    {
-                        float u = Custom.LerpMap(x, 0, width - 1, 0, oldW - 1);
-                        float v = Custom.LerpMap(y, 0, height - 1, 0, oldH - 1);
-
-                        Color32 tl = oldPixels[Mathf.FloorToInt(u) + Mathf.CeilToInt(v) * oldW];
-                        Color32 tr = oldPixels[Mathf.CeilToInt(u) + Mathf.CeilToInt(v) * oldW];
-                        Color32 bl = oldPixels[Mathf.FloorToInt(u) + Mathf.FloorToInt(v) * oldW];
-                        Color32 br = oldPixels[Mathf.CeilToInt(u) + Mathf.FloorToInt(v) * oldW];
-                        pixels[x + y * width] = Color32.LerpUnclamped(Color32.LerpUnclamped(tl, tr, u % 1f), Color32.LerpUnclamped(bl, br, u % 1f), v % 1f);
-                    }
-                }
-
                 texture.Resize(width, height);
                 texture.SetPixelData(pixels, 0);
             }
